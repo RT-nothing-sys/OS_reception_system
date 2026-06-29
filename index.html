@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Premium Open School Kiosk</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        :root {
+            --app-bg-1: #0f172a; --app-bg-2: #1e1b4b; --app-bg-3: #000000;
+            --accent: #3b82f6; --accent-glow: rgba(59, 130, 246, 0.8);
+            --success: #10b981; --success-glow: rgba(16, 185, 129, 0.8);
+            --error: #ef4444; --error-glow: rgba(239, 68, 68, 0.8); /* エラー用の赤色定義を追加 */
+            --text-main: #f8fafc; --text-sub: #94a3b8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-drag: none; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: var(--app-bg-3); color: var(--text-main); }
+        
+        .ambient-background {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: radial-gradient(circle at 50% 50%, var(--app-bg-2) 0%, var(--app-bg-1) 50%, var(--app-bg-3) 100%);
+            opacity: 0.8; z-index: 0;
+        }
+
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; display: none; flex-direction: column;
+            justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .screen.active { display: flex; opacity: 1; }
+
+        /* --- TOP画面 --- */
+        #topScreen { cursor: pointer; text-align: center; }
+        .top-logo { font-size: 1.2rem; color: var(--accent); letter-spacing: 6px; margin-bottom: 10px; font-weight: 600; text-transform: uppercase; }
+        .current-sheet-label { font-size: 1rem; color: var(--success); background: rgba(16, 185, 129, 0.1); padding: 4px 16px; border-radius: 20px; border: 1px solid rgba(16, 185, 129, 0.3); margin-bottom: 24px; display: inline-block; letter-spacing: 2px;}
+        .top-title { font-size: 4.5rem; font-weight: 200; letter-spacing: 12px; margin-bottom: 80px; text-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .touch-to-start {
+            font-size: 1.2rem; color: #fff; letter-spacing: 6px; animation: pulseText 2.5s infinite ease-in-out;
+            padding: 24px 70px; border-radius: 50px; background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3); transition: opacity 0.3s ease;
+        }
+        @keyframes pulseText { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.98); } }
+
+        .settings-btn {
+            position: absolute; bottom: 30px; right: 30px; padding: 12px 24px;
+            background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 30px; color: var(--text-sub); font-size: 1rem; cursor: pointer;
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); transition: all 0.3s ease; z-index: 50;
+        }
+        .settings-btn:active { background: rgba(255, 255, 255, 0.2); }
+
+        /* --- QR読込画面 --- */
+        #scannerScreen { padding: 60px 20px; justify-content: space-evenly; }
+        .school-branding { text-align: center; letter-spacing: 4px; }
+        .school-subtitle { font-size: 1.2rem; color: var(--accent); font-weight: 600; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 6px; }
+        .school-title { font-size: 2.8rem; font-weight: 200; letter-spacing: 10px; }
+
+        .scanner-wrapper { position: relative; width: 440px; height: 440px; border-radius: 48px; background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.1); display: flex; justify-content: center; align-items: center; }
+        .camera-view { position: absolute; width: 340px; height: 340px; border-radius: 32px; background: #000; overflow: hidden; box-shadow: inset 0 0 60px rgba(0,0,0,1); display: flex; justify-content: center; align-items: center; }
+        #reader { width: 100%; height: 100%; border-radius: 32px; overflow: hidden; border: none; position: absolute; top:0; left:0; }
+        #reader video { object-fit: cover; width: 100%; height: 100%; border-radius: 32px; transform: scaleX(-1); }
+        #reader__dashboard_section_csr, #reader__dashboard_section_swaplink, #reader__header_message { display: none !important; }
+
+        /* 外側のスキャン枠 */
+        .scan-frame { position: absolute; width: 100%; height: 100%; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 32px; pointer-events: none; z-index: 5; transition: all 0.2s ease; }
+        /* 成功時（緑） */
+        .scan-frame.success-glow::before, .scan-frame.success-glow::after, .scan-frame.success-glow .scan-frame-inner::before, .scan-frame.success-glow .scan-frame-inner::after { border-color: var(--success); filter: drop-shadow(0 0 15px var(--success-glow)); }
+        /* エラー時（赤） */
+        .scan-frame.error-glow::before, .scan-frame.error-glow::after, .scan-frame.error-glow .scan-frame-inner::before, .scan-frame.error-glow .scan-frame-inner::after { border-color: var(--error); filter: drop-shadow(0 0 15px var(--error-glow)); }
+
+        .scan-frame::before, .scan-frame::after, .scan-frame-inner::before, .scan-frame-inner::after { content: ''; position: absolute; width: 60px; height: 60px; border-color: var(--accent); border-style: solid; filter: drop-shadow(0 0 12px var(--accent-glow)); transition: all 0.2s ease; }
+        .scan-frame::before { top: -1px; left: -1px; border-width: 4px 0 0 4px; border-top-left-radius: 32px; }
+        .scan-frame::after { top: -1px; right: -1px; border-width: 4px 4px 0 0; border-top-right-radius: 32px; }
+        .scan-frame-inner { position: absolute; inset: 0; }
+        .scan-frame-inner::before { bottom: -1px; left: -1px; border-width: 0 0 4px 4px; border-bottom-left-radius: 32px; }
+        .scan-frame-inner::after { bottom: -1px; right: -1px; border-width: 0 4px 4px 0; border-bottom-right-radius: 32px; }
+
+        /* ★追加：内側のターゲット枠（7割サイズ）★ */
+        .target-frame {
+            position: absolute; width: 70%; height: 70%;
+            border: 2px dashed rgba(255, 255, 255, 0.4); border-radius: 20px;
+            pointer-events: none; z-index: 6; transition: all 0.2s ease;
+        }
+        .target-frame.success-glow { border-color: var(--success); box-shadow: 0 0 20px var(--success-glow); border-style: solid; }
+        .target-frame.error-glow { border-color: var(--error); box-shadow: 0 0 20px var(--error-glow); border-style: solid; }
+
+        .laser-beam { position: absolute; left: 0; width: 100%; height: 2px; background: #fff; box-shadow: 0 0 25px 5px var(--accent); animation: scanning 2.5s infinite ease-in-out alternate; pointer-events: none; z-index: 7; }
+        .laser-beam.hidden { display: none; }
+        @keyframes scanning { 0% { top: 5%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 95%; opacity: 0; } }
+
+        .instruction { text-align: center; height: 60px; display: flex; justify-content: center; align-items: center; }
+        .instruction p { font-size: 1.4rem; color: var(--text-main); letter-spacing: 3px; font-weight: 300; transition: color 0.3s; }
+        
+        .secret-back-btn { position: absolute; bottom: 0; right: 0; width: 100px; height: 100px; cursor: pointer; z-index: 50; }
+
+        /* --- 成功時オーバーレイ --- */
+        .success-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 5, 15, 0.8); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); z-index: 100; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        .success-modal.show { opacity: 1; pointer-events: auto; }
+        .modal-content { text-align: center; transform: translateY(30px) scale(0.95); transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+        .success-modal.show .modal-content { transform: translateY(0) scale(1); }
+        .check-circle { width: 140px; height: 140px; border-radius: 50%; background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)); border: 1px solid rgba(16, 185, 129, 0.5); margin: 0 auto 50px; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 80px rgba(16, 185, 129, 0.2), inset 0 0 40px rgba(16, 185, 129, 0.1); }
+        .check-circle svg { width: 70px; height: 70px; color: var(--success); stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.5)); }
+        .success-modal.show .check-circle svg { animation: dash 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards 0.2s; }
+        @keyframes dash { to { stroke-dashoffset: 0; } }
+        .welcome-text { font-size: 3.5rem; font-weight: 200; line-height: 1.5; margin-bottom: 50px; letter-spacing: 2px;}
+        .welcome-text strong { font-weight: 600; background: linear-gradient(to right, #60a5fa, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block; }
+        .details-card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 32px; padding: 48px 64px; display: inline-flex; gap: 80px; text-align: left; box-shadow: 0 30px 60px rgba(0,0,0,0.4); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .detail-item { display: flex; flex-direction: column; gap: 12px; }
+        .detail-label { font-size: 1rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 3px; font-weight: 500;}
+        .detail-value { font-size: 2rem; font-weight: 400; color: #fff; letter-spacing: 1px;}
+
+        /* --- 管理設定用モーダル --- */
+        .config-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 200; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        .config-modal.show { opacity: 1; pointer-events: auto; }
+        .config-box { background: var(--app-bg-2); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 40px; width: 500px; box-shadow: 0 30px 60px rgba(0,0,0,0.6); text-align: center; }
+        .config-box h2 { margin-bottom: 30px; font-weight: 400; letter-spacing: 2px; }
+        .config-group { margin-bottom: 40px; text-align: left; }
+        .config-group label { display: block; margin-bottom: 10px; color: var(--text-sub); font-size: 0.9rem; }
+        .config-group select { width: 100%; padding: 15px; font-size: 1.2rem; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(0, 0, 0, 0.5); color: #fff; outline: none; -webkit-appearance: none; }
+        .config-actions { display: flex; gap: 20px; justify-content: center; }
+        .btn-cancel { padding: 15px 30px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #fff; font-size: 1rem; cursor: pointer; flex: 1;}
+        .btn-save { padding: 15px 30px; border-radius: 30px; border: none; background: var(--accent); color: #fff; font-size: 1rem; cursor: pointer; flex: 1; font-weight: bold;}
+    </style>
+</head>
+<body>
+    <div class="ambient-background"></div>
+
+    <div id="topScreen" class="screen active">
+        <div class="top-logo">O-School Check-in</div>
+        <div id="currentSheetDisplay" class="current-sheet-label">連携先: 確認中...</div>
+        <h1 class="top-title">オープンスクール受付</h1>
+        <div class="touch-to-start" id="touchStartBtn">データを同期中...</div>
+        <div class="settings-btn" id="settingsBtn">⚙️ 連携先設定</div>
+    </div>
+
+    <div id="scannerScreen" class="screen">
+        <div class="school-branding">
+            <div class="school-subtitle">O-School Check-in</div>
+            <div class="school-title">QRコード読込</div>
+        </div>
+        <div class="scanner-wrapper">
+            <div class="camera-view">
+                <div id="reader"></div>
+                <div class="scan-frame" id="scanFrame"><div class="scan-frame-inner"></div></div>
+                <div class="target-frame" id="targetFrame"></div>
+                <div class="laser-beam" id="laserBeam"></div>
+            </div>
+        </div>
+        <div class="instruction">
+            <p id="instructionText">受験票のQRコードをカメラにかざしてください</p>
+        </div>
+        <div class="secret-back-btn" id="secretBackBtn" title="TOPへ戻る"></div>
+    </div>
+
+    <div class="success-modal" id="successModal">
+        <div class="modal-content">
+            <div class="check-circle"><svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg></div>
+            <h1 class="welcome-text"><strong id="userName">○○</strong> さん<br>オープンスクールへようこそ</h1>
+            <div class="details-card">
+                <div class="detail-item"><span class="detail-label">コース</span><span class="detail-value" id="userCourse">○○コース</span></div>
+                <div class="detail-item"><span class="detail-label">体験授業</span><span class="detail-value" id="userClass">○○体験</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="config-modal" id="configModal">
+        <div class="config-box">
+            <h2>⚙️ 連携先シートの切り替え</h2>
+            <div class="config-group">
+                <label>現在スプレッドシートにあるタブ一覧</label>
+                <select id="sheetSelect">
+                    <option value="">読込中...</option>
+                </select>
+            </div>
+            <div class="config-actions">
+                <button id="cancelConfigBtn" class="btn-cancel">キャンセル</button>
+                <button id="saveConfigBtn" class="btn-save">保存して同期</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================
+        // ▼ 必ずあなたのGASウェブアプリのURLに書き換えてください ▼
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx48lvas7fUnuWJ-pTh7oi7T5G8fWRA49es2LxxXomnlyVgfE050pqSYcwk55KZ0d8c/exec";
+        // =========================================================
+
+        const topScreen = document.getElementById('topScreen');
+        const scannerScreen = document.getElementById('scannerScreen');
+        const successModal = document.getElementById('successModal');
+        const secretBackBtn = document.getElementById('secretBackBtn');
+        const scanFrame = document.getElementById('scanFrame');
+        // 追加：ターゲット枠の要素
+        const targetFrame = document.getElementById('targetFrame');
+        const laserBeam = document.getElementById('laserBeam');
+        const touchStartBtn = document.getElementById('touchStartBtn');
+        const instructionText = document.getElementById('instructionText');
+        
+        const currentSheetDisplay = document.getElementById('currentSheetDisplay');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const configModal = document.getElementById('configModal');
+        const sheetSelect = document.getElementById('sheetSelect');
+        const cancelConfigBtn = document.getElementById('cancelConfigBtn');
+        const saveConfigBtn = document.getElementById('saveConfigBtn');
+
+        let isProcessing = false;
+        let html5QrCode;
+        let audioCtx;
+        let userDatabase = {};
+        let currentSheetName = localStorage.getItem("target_sheet_name") || "名簿";
+
+        async function fetchUserList() {
+            currentSheetDisplay.textContent = `連携先: ${currentSheetName}`;
+            touchStartBtn.textContent = "データを同期中...";
+            touchStartBtn.style.opacity = "0.5";
+            try {
+                const response = await fetch(`${GAS_WEB_APP_URL}?action=get_list&sheetName=${encodeURIComponent(currentSheetName)}`);
+                const data = await response.json();
+                if (data.success) {
+                    userDatabase = data.users;
+                    touchStartBtn.textContent = "画面をタッチしてスタート";
+                    touchStartBtn.style.opacity = "1";
+                } else {
+                    touchStartBtn.textContent = "エラー: タブ名を確認してください";
+                    alert(data.message);
+                }
+            } catch (error) {
+                touchStartBtn.textContent = "通信エラー：再読み込みしてください";
+            }
+        }
+
+        window.onload = fetchUserList;
+
+        settingsBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            configModal.classList.add('show');
+            sheetSelect.innerHTML = '<option value="">Googleからタブを取得中...</option>';
+            try {
+                const response = await fetch(`${GAS_WEB_APP_URL}?action=get_sheets`);
+                const data = await response.json();
+                if(data.success) {
+                    sheetSelect.innerHTML = '';
+                    data.sheets.forEach(sheetName => {
+                        const option = document.createElement('option');
+                        option.value = sheetName;
+                        option.textContent = sheetName;
+                        if(sheetName === currentSheetName) option.selected = true;
+                        sheetSelect.appendChild(option);
+                    });
+                } else {
+                    sheetSelect.innerHTML = '<option value="">取得エラー</option>';
+                }
+            } catch (err) {
+                sheetSelect.innerHTML = '<option value="">通信エラー</option>';
+            }
+        });
+
+        cancelConfigBtn.addEventListener('click', () => { configModal.classList.remove('show'); });
+        saveConfigBtn.addEventListener('click', () => {
+            const selectedSheet = sheetSelect.value;
+            if(!selectedSheet) return;
+            localStorage.setItem("target_sheet_name", selectedSheet);
+            currentSheetName = selectedSheet;
+            configModal.classList.remove('show');
+            fetchUserList();
+        });
+
+        function playSuccessBeep() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sine'; osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.08); 
+        }
+
+        // 枠の色などをリセットする関数
+        function resetUI() {
+            scanFrame.classList.remove('success-glow', 'error-glow');
+            targetFrame.classList.remove('success-glow', 'error-glow');
+            laserBeam.classList.remove('hidden');
+            instructionText.style.color = "var(--text-main)";
+        }
+
+        function startCamera() {
+            html5QrCode = new Html5Qrcode("reader");
+            // 読み取り範囲を少し広げて、ターゲット枠に入れやすくする
+            const config = { fps: 30, qrbox: { width: 300, height: 300 }, formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ] }; 
+            
+            html5QrCode.start({ facingMode: "user" }, config, (decodedText) => {
+                if (isProcessing) return;
+                isProcessing = true;
+
+                // 読み取った瞬間はいったん停止
+                html5QrCode.pause();
+                if (navigator.vibrate) navigator.vibrate(50);
+                laserBeam.classList.add('hidden');
+
+                const userData = userDatabase[decodedText];
+
+                if (userData) {
+                    // --- 成功時（緑色） ---
+                    playSuccessBeep();
+                    scanFrame.classList.add('success-glow');
+                    targetFrame.classList.add('success-glow'); // ターゲット枠も緑に
+
+                    document.getElementById('userName').textContent = userData.name;
+                    document.getElementById('userCourse').textContent = userData.course;
+                    document.getElementById('userClass').textContent = userData.class;
+                    successModal.classList.add('show');
+
+                    fetch(`${GAS_WEB_APP_URL}?action=checkin&id=${decodedText}&sheetName=${encodeURIComponent(currentSheetName)}`)
+                        .catch(e => console.error("打刻エラー", e));
+
+                    setTimeout(() => {
+                        successModal.classList.remove('show');
+                        setTimeout(() => { 
+                            resetUI(); 
+                            isProcessing = false; 
+                            html5QrCode.resume(); // カメラ再開
+                        }, 500);
+                    }, 3000);
+
+                } else {
+                    // --- 失敗時（赤色・ポップアップなし） ---
+                    // alertをやめて、枠を赤く光らせる
+                    scanFrame.classList.add('error-glow');
+                    targetFrame.classList.add('error-glow'); // ターゲット枠も赤に
+                    instructionText.textContent = `未登録のQRコードです`;
+                    instructionText.style.color = "var(--error)";
+
+                    // 1.5秒後に自動でリセットして次の読み取りへ
+                    setTimeout(() => {
+                        resetUI();
+                        instructionText.textContent = "受験票のQRコードをカメラにかざしてください";
+                        isProcessing = false;
+                        html5QrCode.resume(); // カメラ再開（止まらずに続く）
+                    }, 1500);
+                }
+            }, (err) => {}).catch(err => console.error(err));
+        }
+
+        function stopCamera() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => html5QrCode.clear()).catch(e => console.error(e));
+            }
+        }
+
+        topScreen.addEventListener('click', (e) => {
+            if (e.target.id === 'settingsBtn' || configModal.classList.contains('show')) return;
+            if (Object.keys(userDatabase).length === 0) return;
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            topScreen.classList.remove('active');
+            setTimeout(() => { scannerScreen.classList.add('active'); startCamera(); }, 100);
+        });
+
+        secretBackBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            stopCamera();
+            resetUI();
+            scannerScreen.classList.remove('active');
+            setTimeout(() => { topScreen.classList.add('active'); fetchUserList(); }, 100);
+        });
+    </script>
+</body>
+</html>
