@@ -140,7 +140,7 @@
     <div id="scannerScreen" class="screen">
         <div class="school-branding">
             <div class="school-subtitle">O-School Check-in</div>
-            <div class="school-title">QRコード読込</div>
+            <div class="school-title">受付バーコード読込</div>
         </div>
         <div class="scanner-wrapper">
             <div class="camera-view">
@@ -151,7 +151,7 @@
             </div>
         </div>
         <div class="instruction">
-            <p id="instructionText">受験票のQRコードをカメラにかざしてください</p>
+            <p id="instructionText">受付票のバーコードをカメラにかざしてください</p>
         </div>
         <div class="secret-back-btn" id="secretBackBtn" title="TOPへ戻る"></div>
     </div>
@@ -331,13 +331,13 @@
                     // alertをやめて、枠を赤く光らせる
                     scanFrame.classList.add('error-glow');
                     targetFrame.classList.add('error-glow'); // ターゲット枠も赤に
-                    instructionText.textContent = `未登録のQRコードです`;
+                    instructionText.textContent = `未登録のバーコードです`;
                     instructionText.style.color = "var(--error)";
 
                     // 1.5秒後に自動でリセットして次の読み取りへ
                     setTimeout(() => {
                         resetUI();
-                        instructionText.textContent = "受験票のQRコードをカメラにかざしてください";
+                        instructionText.textContent = "受付票のバーコードをカメラにかざしてください";
                         isProcessing = false;
                         html5QrCode.resume(); // カメラ再開（止まらずに続く）
                     }, 1500);
